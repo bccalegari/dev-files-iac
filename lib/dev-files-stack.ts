@@ -260,8 +260,13 @@ export class DevFilesEc2Stack extends Stack {
             'MAIL_PASSWORD=${MAIL_PASSWORD_VAL}',
 
             '# DevFiles Service',
-            'DEV_FILES_SERVICE_PORT=80',
+            'DEV_FILES_SERVICE_PORT=8080',
             'EOF_ENV',
+
+            'FOLDERS=("dev-files-api", "dev-files-notification", "dev-files-ai-service")',
+            'for folder in "${FOLDERS[@]}"; do',
+            '  cp .env "/home/ec2-user/devfiles-monorepo/$folder/.env"',
+            'done',
 
             '$DOCKER_CONFIG/cli-plugins/docker-compose up -d'
         );
