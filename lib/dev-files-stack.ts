@@ -217,7 +217,7 @@ export class DevFilesEc2Stack extends Stack {
             `MAIL_PASSWORD_VAL=$(aws secretsmanager get-secret-value --secret-id ${mailPasswordSecret.secretArn} --query SecretString --output text)`,
 
             'cat <<EOF_ENV > .env',
-            'SPRING_PROFILES_ACTIVE=prod',
+            'SPRING_PROFILES_ACTIVE=prd',
 
             '# PostgreSQL',
             'POSTGRES_DB=devfiles',
