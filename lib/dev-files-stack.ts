@@ -38,7 +38,7 @@ export class DevFilesEc2Stack extends Stack {
             ],
         });
 
-        const devFilesBucket = new s3.Bucket(this, 'DevFilesBucket', {
+        new s3.Bucket(this, 'DevFilesBucket', {
             bucketName: 'dev-files-bucket',
             removalPolicy: RemovalPolicy.DESTROY,
             autoDeleteObjects: true
