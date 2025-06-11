@@ -1,12 +1,12 @@
 import {
     aws_ec2 as ec2,
     aws_iam as iam,
+    aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
     CfnOutput,
     RemovalPolicy,
     Stack,
     StackProps,
-    aws_s3 as s3,
 } from 'aws-cdk-lib';
 import {Construct} from 'constructs';
 
@@ -49,6 +49,7 @@ export class DevFilesEc2Stack extends Stack {
                 passwordLength: 16,
                 excludeCharacters: '@/"\' \\',
                 secretStringTemplate: '{"username": "devfiles", "password": ""}',
+                generateStringKey: 'password',
             },
             removalPolicy: RemovalPolicy.DESTROY,
         });
@@ -58,6 +59,7 @@ export class DevFilesEc2Stack extends Stack {
                 passwordLength: 16,
                 excludeCharacters: '@/"\' \\',
                 secretStringTemplate: '{"username": "devfiles", "password": ""}',
+                generateStringKey: 'password',
             },
             removalPolicy: RemovalPolicy.DESTROY,
         });
@@ -67,6 +69,7 @@ export class DevFilesEc2Stack extends Stack {
                 passwordLength: 16,
                 excludeCharacters: '@/"\' \\',
                 secretStringTemplate: '{"username": "notification", "password": ""}',
+                generateStringKey: 'password',
             },
             removalPolicy: RemovalPolicy.DESTROY,
         });
@@ -76,6 +79,7 @@ export class DevFilesEc2Stack extends Stack {
                 passwordLength: 16,
                 excludeCharacters: '@/"\' \\',
                 secretStringTemplate: '{"username": "notification", "password": ""}',
+                generateStringKey: 'password',
             },
             removalPolicy: RemovalPolicy.DESTROY,
         });
@@ -93,6 +97,7 @@ export class DevFilesEc2Stack extends Stack {
                 passwordLength: 32,
                 excludeCharacters: '@/"\' \\',
                 secretStringTemplate: '{"key": ""}',
+                generateStringKey: 'key',
             },
             removalPolicy: RemovalPolicy.DESTROY,
         });
@@ -156,24 +161,6 @@ export class DevFilesEc2Stack extends Stack {
         allowedPorts.forEach(p =>
             ec2Sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(p.port), p.desc)
         );
-
-        const amiMap: { [region: string]: string } = {
-            'us-east-1': 'ami-053b0a240c5f013d3',
-            'us-east-2': 'ami-0a8b4cd689d084bc6',
-            'us-west-1': 'ami-0202931215b248a30',
-            'us-west-2': 'ami-08e1d520630713437',
-            'eu-west-1': 'ami-014f3b7625102a9b4',
-            'eu-west-2': 'ami-09559c558d0422116',
-            'eu-central-1': 'ami-01583d73981881518',
-            'ap-southeast-1': 'ami-04a60b94379e49755',
-            'ap-southeast-2': 'ami-03823438e788c038c',
-            'ap-northeast-1': 'ami-002d9136e05d97f26',
-            'ap-northeast-2': 'ami-0e3a479a924403070',
-            'sa-east-1': 'ami-065ce08c35b80456c',
-        };
-
-        const amiId = amiMap[Stack.of(this).region];
-        if (!amiId) throw new Error(`AMI not found for region: ${Stack.of(this).region}`);
 
         const userData = ec2.UserData.forLinux();
         userData.addCommands(
@@ -271,9 +258,13 @@ export class DevFilesEc2Stack extends Stack {
             '$DOCKER_CONFIG/cli-plugins/docker-compose up -d'
         );
 
+        const amiId = 'ami-065ce08c35b80456c';
+
         const devfilesInstance = new ec2.Instance(this, 'DevfilesInstance', {
             instanceType: ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.XLARGE2),
-            machineImage: ec2.MachineImage.genericLinux({ [Stack.of(this).region]: amiId }),
+            machineImage: ec2.MachineImage.genericLinux({
+                'sa-east-1': amiId,
+            }),
             vpc,
             vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
             securityGroup: ec2Sg,
