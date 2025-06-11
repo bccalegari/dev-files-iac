@@ -258,13 +258,9 @@ export class DevFilesEc2Stack extends Stack {
             '$DOCKER_CONFIG/cli-plugins/docker-compose up -d'
         );
 
-        const amiId = 'ami-065ce08c35b80456c';
-
         const devfilesInstance = new ec2.Instance(this, 'DevfilesInstance', {
             instanceType: ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.XLARGE2),
-            machineImage: ec2.MachineImage.genericLinux({
-                'sa-east-1': amiId,
-            }),
+            machineImage: ec2.MachineImage.latestAmazonLinux2(),
             vpc,
             vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
             securityGroup: ec2Sg,
