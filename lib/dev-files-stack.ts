@@ -262,7 +262,7 @@ export class DevFilesEc2Stack extends Stack {
             'EOF_ENV',
 
             'echo "Starting Docker Compose..."',
-            'su - ec2-user -c "~/.docker/cli-plugins/docker-compose up -d"',
+            'su - ec2-user -c "cd ~/dev-files-monorepo && /home/ec2-user/.docker/cli-plugins/docker-compose up -d"',
 
             'echo "Environment setup complete!"',
         );
