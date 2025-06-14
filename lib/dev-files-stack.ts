@@ -275,6 +275,15 @@ export class DevFilesEc2Stack extends Stack {
             securityGroup: ec2Sg,
             role: ec2Role,
             userData,
+            blockDevices: [
+                {
+                    deviceName: '/dev/xvda',
+                    volume: ec2.BlockDeviceVolume.ebs(64, {
+                        deleteOnTermination: true,
+                        volumeType: ec2.EbsDeviceVolumeType.GP3,
+                    }),
+                },
+            ],
         });
 
         new CfnOutput(this, 'InstancePublicIp', {
