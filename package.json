@@ -9,8 +9,8 @@
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "cdk",
-    "deploy": "cdk synth && cdk bootstrap aws://575108930593/sa-east-1 && cdk deploy",
-    "destroy": "cdk destroy"
+    "deploy": "cdk synth && cdk bootstrap --no-confirm && cdk deploy --require-approval never",
+    "destroy": "cdk destroy --force"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

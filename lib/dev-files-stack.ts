@@ -39,7 +39,7 @@ export class DevFilesEc2Stack extends Stack {
         });
 
         new s3.Bucket(this, 'DevFilesBucket', {
-            bucketName: 'dev-files-bucket',
+            bucketName: 'devfiles-files',
             removalPolicy: RemovalPolicy.DESTROY,
             autoDeleteObjects: true
         });
@@ -131,17 +131,10 @@ export class DevFilesEc2Stack extends Stack {
 
         ec2Role.addToPolicy(new iam.PolicyStatement({
             actions: ['secretsmanager:GetSecretValue'],
-            resources: [
-                postgresPasswordSecret.secretArn,
-                rabbitmqDefaultSecret.secretArn,
-                rabbitmqNotificationSecret.secretArn,
-                jwtSecretKeySecret.secretArn,
-                redisPasswordSecret.secretArn,
-                awsAccessKeyIdSecret.secretArn,
-                awsSecretAccessKeySecret.secretArn,
-                mailPasswordSecret.secretArn,
-            ],
+            resources: ['*'],
         }));
+
+        ec2Role.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchAgentServerPolicy'));
 
         const ec2Sg = new ec2.SecurityGroup(this, 'DevFilesEc2SecurityGroup', {
             vpc,
@@ -165,70 +158,92 @@ export class DevFilesEc2Stack extends Stack {
         const userData = ec2.UserData.forLinux();
         userData.addCommands(
             '#!/bin/bash',
-            'set -e',
+            'set -euxo pipefail',
+            'exec > /var/log/user-data-output.log 2>&1',
 
+            'echo "Installing dependencies..."',
             'yum update -y',
+            'yum install -y unzip curl git jq amazon-cloudwatch-agent',
+
+            'echo "Installing AWS CLI v2 silently..."',
+            'curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"',
+            'unzip -qq awscliv2.zip >/dev/null',
+            './aws/install >/dev/null 2>&1',
+
+            'echo "Installing Docker and Docker Compose..."',
             'amazon-linux-extras install docker -y',
-            'service docker start',
+            'systemctl start docker',
             'usermod -a -G docker ec2-user',
-            'chkconfig docker on',
-            'DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker}',
-            'mkdir -p $DOCKER_CONFIG/cli-plugins',
-            'curl -SL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o $DOCKER_CONFIG/cli-plugins/docker-compose',
-            'chmod +x $DOCKER_CONFIG/cli-plugins/docker-compose',
-            'yum install -y git jq',
+            'systemctl enable docker',
+            'su - ec2-user -c "mkdir -p ~/.docker/cli-plugins"',
+            'su - ec2-user -c "curl -sSL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose"',
+            'su - ec2-user -c "chmod +x ~/.docker/cli-plugins/docker-compose"',
+            'su - ec2-user -c "docker compose version"',
 
-            `git clone ${props.gitHubRepoUrl} /home/ec2-user/devfiles-monorepo`,
-            'cd /home/ec2-user/devfiles-monorepo',
+            'echo "Configuring CloudWatch Agent..."',
+            'cat <<EOF > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json',
+            `{
+                "logs": {
+                  "logs_collected": {
+                    "files": {
+                      "collect_list": [
+                        {
+                          "file_path": "/var/log/user-data-output.log",
+                          "log_group_name": "DevFilesEC2-user-data",
+                          "log_stream_name": "{instance_id}"
+                        },
+                        {
+                          "file_path": "/var/log/docker.log",
+                          "log_group_name": "DevFilesEC2-docker",
+                          "log_stream_name": "{instance_id}"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }`,
+            'EOF',
+            '/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s',
 
-            `POSTGRES_PASSWORD_VAL=$(aws secretsmanager get-secret-value --secret-id ${postgresPasswordSecret.secretArn} --query SecretString --output text | jq -r .password)`,
-            `POSTGRES_USER_VAL=$(aws secretsmanager get-secret-value --secret-id ${postgresPasswordSecret.secretArn} --query SecretString --output text | jq -r .username)`,
+            'echo "Cloning repository..."',
+            'cd /home/ec2-user',
+            'mkdir -p /home/ec2-user/.ssh',
+            'chown ec2-user:ec2-user /home/ec2-user/.ssh',
+            'su - ec2-user -c "ssh-keyscan -H github.com >> ~/.ssh/known_hosts"',
+            `git clone --recurse-submodules ${props.gitHubRepoUrl}`,
+            'cd dev-files-monorepo',
 
-            `RABBITMQ_DEFAULT_PASS_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqDefaultSecret.secretArn} --query SecretString --output text | jq -r .password)`,
-            `RABBITMQ_DEFAULT_USER_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqDefaultSecret.secretArn} --query SecretString --output text | jq -r .username)`,
-            `RABBITMQ_ERLANG_COOKIE_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqErlangCookieSecret.secretArn} --query SecretString --output text | jq -r .password)`,
+            'echo "Fetching secrets..."',
+            `POSTGRES_PASSWORD_VAL=$(aws secretsmanager get-secret-value --secret-id ${postgresPasswordSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .password)`,
+            `POSTGRES_USER_VAL=$(aws secretsmanager get-secret-value --secret-id ${postgresPasswordSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .username)`,
+            `RABBITMQ_DEFAULT_PASS_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqDefaultSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .password)`,
+            `RABBITMQ_DEFAULT_USER_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqDefaultSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .username)`,
+            `RABBITMQ_ERLANG_COOKIE_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqErlangCookieSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .password)`,
+            `NOTIFICATION_SERVICE_PASS_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqNotificationSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .password)`,
+            `NOTIFICATION_SERVICE_USER_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqNotificationSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .username)`,
+            `JWT_SECRET_KEY_VAL=$(aws secretsmanager get-secret-value --secret-id ${jwtSecretKeySecret.secretArn} --region sa-east-1 --query SecretString --output text)`,
+            `AI_SERVICE_KEY_VAL=$(aws secretsmanager get-secret-value --secret-id ${aiServiceKeySecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .key)`,
+            `REDIS_PASSWORD_VAL=$(aws secretsmanager get-secret-value --secret-id ${redisPasswordSecret.secretArn} --region sa-east-1 --query SecretString --output text)`,
+            `AWS_ACCESS_KEY_ID_VAL=$(aws secretsmanager get-secret-value --secret-id ${awsAccessKeyIdSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .AccessKeyId)`,
+            `AWS_SECRET_ACCESS_KEY_VAL=$(aws secretsmanager get-secret-value --secret-id ${awsSecretAccessKeySecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .SecretAccessKey)`,
+            `MAIL_SENDER_EMAIL_VAL=$(aws secretsmanager get-secret-value --secret-id ${mailSenderSecret.secretArn} --region sa-east-1 --query SecretString --output text | jq -r .email)`,
+            `MAIL_PASSWORD_VAL=$(aws secretsmanager get-secret-value --secret-id ${mailPasswordSecret.secretArn} --region sa-east-1 --query SecretString --output text)`,
 
-            `NOTIFICATION_SERVICE_PASS_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqNotificationSecret.secretArn} --query SecretString --output text | jq -r .password)`,
-            `NOTIFICATION_SERVICE_USER_VAL=$(aws secretsmanager get-secret-value --secret-id ${rabbitmqNotificationSecret.secretArn} --query SecretString --output text | jq -r .username)`,
-
-            `JWT_SECRET_KEY_VAL=$(aws secretsmanager get-secret-value --secret-id ${jwtSecretKeySecret.secretArn} --query SecretString --output text)`,
-
-            `AI_SERVICE_KEY_VAL=$(aws secretsmanager get-secret-value --secret-id ${aiServiceKeySecret.secretArn} --query SecretString --output text | jq -r .key)`,
-
-            `REDIS_PASSWORD_VAL=$(aws secretsmanager get-secret-value --secret-id ${redisPasswordSecret.secretArn} --query SecretString --output text)`,
-
-            `AWS_ACCESS_KEY_ID_VAL=$(aws secretsmanager get-secret-value --secret-id ${awsAccessKeyIdSecret.secretArn} --query SecretString --output text | jq -r .AccessKeyId)`,
-            `AWS_SECRET_ACCESS_KEY_VAL=$(aws secretsmanager get-secret-value --secret-id ${awsSecretAccessKeySecret.secretArn} --query SecretString --output text | jq -r .SecretAccessKey)`,
-
-            `MAIL_SENDER_EMAIL_VAL=$(aws secretsmanager get-secret-value --secret-id ${mailSenderSecret.secretArn} --query SecretString --output text | jq -r .email)`,
-            `MAIL_PASSWORD_VAL=$(aws secretsmanager get-secret-value --secret-id ${mailPasswordSecret.secretArn} --query SecretString --output text)`,
-
+            'echo "Generating .env file..."',
             'cat <<EOF_ENV > .env',
             'SPRING_PROFILES_ACTIVE=prd',
-
-            '# PostgreSQL',
             'POSTGRES_DB=devfiles',
             'POSTGRES_USER=${POSTGRES_USER_VAL}',
             'POSTGRES_PASSWORD=${POSTGRES_PASSWORD_VAL}',
             'POSTGRES_URL=jdbc:postgresql://devfiles-postgres:5432/devfiles',
-
-            '# RabbitMQ',
             'RABBITMQ_ERLANG_COOKIE=${RABBITMQ_ERLANG_COOKIE_VAL}',
             'RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER_VAL}',
             'RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS_VAL}',
-
-            '# JWT',
             'JWT_SECRET_KEY=${JWT_SECRET_KEY_VAL}',
-
-            '# Redis',
             'REDIS_PASSWORD=${REDIS_PASSWORD_VAL}',
-
-            '# AWS',
             'AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID_VAL}',
             'AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY_VAL}',
-            'AWS_BUCKET_NAME=devfiles-bucket',
-
-            '# AI Service',
+            'AWS_BUCKET_NAME=devfiles-files',
             'AI_SERVICE_URL=http://ai-service:5000',
             'AI_SERVICE_KEY=${AI_SERVICE_KEY_VAL}',
             'AI_SERVICE_PORT=5000',
@@ -236,8 +251,6 @@ export class DevFilesEc2Stack extends Stack {
             'OLLAMA_EMBEDDING_BASE_URL=http://ollama_embedding:11435',
             'CHROMA_DB_HOST=chroma_db',
             'CHROMA_DB_PORT=8000',
-
-            '# Notification Service',
             'NOTIFICATION_SERVICE_USER=${NOTIFICATION_SERVICE_USER_VAL}',
             'NOTIFICATION_SERVICE_PASS=${NOTIFICATION_SERVICE_PASS_VAL}',
             'MAIL_SENDER_EMAIL=${MAIL_SENDER_EMAIL_VAL}',
@@ -245,17 +258,13 @@ export class DevFilesEc2Stack extends Stack {
             'MAIL_PORT=587',
             'MAIL_USERNAME=apikey',
             'MAIL_PASSWORD=${MAIL_PASSWORD_VAL}',
-
-            '# DevFiles Service',
             'DEV_FILES_SERVICE_PORT=8080',
             'EOF_ENV',
 
-            'FOLDERS=("dev-files-api", "dev-files-notification", "dev-files-ai-service")',
-            'for folder in "${FOLDERS[@]}"; do',
-            '  cp .env "/home/ec2-user/devfiles-monorepo/$folder/.env"',
-            'done',
+            'echo "Starting Docker Compose..."',
+            'su - ec2-user -c "~/.docker/cli-plugins/docker-compose up -d"',
 
-            '$DOCKER_CONFIG/cli-plugins/docker-compose up -d'
+            'echo "Environment setup complete!"',
         );
 
         const devfilesInstance = new ec2.Instance(this, 'DevfilesInstance', {
