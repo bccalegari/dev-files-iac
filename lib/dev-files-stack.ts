@@ -147,7 +147,7 @@ export class DevFilesEc2Stack extends Stack {
             { port: 80, desc: 'DevFiles Service' },
             { port: 5432, desc: 'PostgreSQL' },
             { port: 6379, desc: 'Redis' },
-            { port: 15673, desc: 'RabbitMQ UI' },
+            { port: 15672, desc: 'RabbitMQ UI' },
             { port: 8000, desc: 'ChromaDB' },
         ];
 
