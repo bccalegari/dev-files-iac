@@ -193,7 +193,7 @@ export class DevFilesEc2Stack extends Stack {
                           "log_stream_name": "{instance_id}"
                         },
                         {
-                          "file_path": "/var/log/docker.log",
+                          "file_path": "/var/lib/docker/containers/*/*.log",
                           "log_group_name": "DevFilesEC2-docker",
                           "log_stream_name": "{instance_id}"
                         }
@@ -258,7 +258,7 @@ export class DevFilesEc2Stack extends Stack {
             'MAIL_PORT=587',
             'MAIL_USERNAME=apikey',
             'MAIL_PASSWORD=${MAIL_PASSWORD_VAL}',
-            'DEV_FILES_SERVICE_PORT=8080',
+            'DEV_FILES_SERVICE_PORT=80',
             'EOF_ENV',
 
             'echo "Starting Docker Compose..."',
@@ -278,7 +278,7 @@ export class DevFilesEc2Stack extends Stack {
             blockDevices: [
                 {
                     deviceName: '/dev/xvda',
-                    volume: ec2.BlockDeviceVolume.ebs(64, {
+                    volume: ec2.BlockDeviceVolume.ebs(32, {
                         deleteOnTermination: true,
                         volumeType: ec2.EbsDeviceVolumeType.GP3,
                     }),
