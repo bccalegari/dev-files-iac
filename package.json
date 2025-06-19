@@ -1,6 +1,6 @@
 {
   "name": "dev-files-iac",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "bin": {
     "dev-files-iac": "bin/dev-files-iac.js"
   },
